@@ -1,6 +1,6 @@
 import sys
 import random
-from PyQt4 import QtCore, QtGui
+from PyQt4 import QtCore, QtGui, QtTest
 
 class Fishy(QtGui.QMainWindow):
     Height = 600
@@ -30,7 +30,7 @@ class Fishy(QtGui.QMainWindow):
 class Board(QtGui.QFrame):
     BoardWidth = 20
     BoardHeight = 20
-    Pieces = 4
+    Pieces = 4 #moving objects
     Margin = 5
     UP = 1
     DOWN = 2
@@ -41,7 +41,7 @@ class Board(QtGui.QFrame):
         QtGui.QFrame.__init__(self, parent)
 
         self.board = []
-        self.piece_pos = [(None, None)] * (Board.Pieces+1)
+        self.piece_pos = [(None, None)] * (Board.Pieces+1) #last position stores hunter
         self.alive = Board.Pieces 
         self.steps = 0 #counter
         
@@ -61,23 +61,58 @@ class Board(QtGui.QFrame):
     def squareHeight(self):
         return self.contentsRect().height() / Board.BoardHeight
 
-    def replaceShape(self, x, y, i, val):
+    def replaceShape(self, x, y, i, val): #only change part of the tuple (dir, has_fish, has_hunter)
         atuple = self.shapeAt(x,y)
         b = list(atuple)
         b[i] = val
         self.setShapeAt(x,y,tuple(b))
     
-    def demo(self): 
+    def demo(self, path): 
         '''
         demo function: take a list of steps and demonstrate 
         '''
-        pass
-   
+        upperbound = 50
+         
+        for i in range(upperbound):
+            nextDir = path()
+            QtTest.QTest.qWait(300)
+            self.nextMove(nextDir)
+    
+    def greedy(self):
+        '''
+        return direction
+        '''
+        (x0, y0) = self.piece_pos[Board.Pieces]
+        min_dis = Board.BoardWidth ** 2 + Board.BoardHeight **2 + 1
+        (x_min, y_min) = (x0, y0)
+
+        for (x,y) in self.livingFish():
+            dist = (x - x0) ** 2 + (y - y0) ** 2
+            if dist < min_dis:
+                min_dis = dist
+                (x_min, y_min) = (x,y)
+
+        if abs(x_min - x0) >= abs(y_min - y0):
+            return Board.RIGHT if x_min >= x0 else Board.LEFT
+        else:
+            return Board.DOWN if y_min >= y0 else Board.UP
+
+    def random_path(self):
+        return random.randrange(4)
+
+    def livingFish(self):
+        results = []
+        for i in range(Board.Pieces):
+            (x,y) = self.piece_pos[i]
+            if self.shapeAt(x,y)[1]:
+                results.append((x,y))
+        return results
+    
     def keyPressEvent(self, event):
         key = event.key()
         
         if key == QtCore.Qt.Key_D:
-            self.demo()
+            self.demo(self.greedy)
             return None
 
         if key == QtCore.Qt.Key_Q:
@@ -95,18 +130,19 @@ class Board(QtGui.QFrame):
     
     def nextMove(self, direction):
         #update hunters
-        (hunt_x, hunt_y) = self.piece_pos[Board.Pieces]
+        (hunt_x, hunt_y) = self.piece_pos[Board.Pieces] #hunter always at end
         (new_hunt_x, new_hunt_y) = (hunt_x, hunt_y)
+        #take care of borders 
         x_left = max(0, hunt_x-1)
         x_right = min(Board.BoardWidth-1, hunt_x+1)
         y_up = max(0, hunt_y-1)
         y_dn = min(Board.BoardHeight-1, hunt_y+1)
 
-        if direction == Board.LEFT: #left
+        if direction == Board.LEFT: 
             new_hunt_x = x_left
-        elif direction == Board.RIGHT: #right
+        elif direction == Board.RIGHT: 
             new_hunt_x = x_right
-        elif direction == Board.UP: #up
+        elif direction == Board.UP: 
             new_hunt_y = y_up 
         elif direction == Board.DOWN:
             new_hunt_y = y_dn
@@ -116,12 +152,12 @@ class Board(QtGui.QFrame):
         for i in range(Board.Pieces):
             (x,y) = self.piece_pos[i]
             if self.shapeAt(x,y)[1]: #is marked as fish
-                (new_fish_x, new_fish_y) = self.fishNext(x,y) 
+                (new_fish_x, new_fish_y) = self.fishNext(x,y) #next destined move
                 if ((new_hunt_x, new_hunt_y) == (new_fish_x, new_fish_y)) or \
                 (((hunt_x - x)*(new_hunt_x - new_fish_x) == -1) and (new_hunt_y == new_fish_y)) or \
                 (((hunt_y - y)*(new_hunt_y - new_fish_y) == -1) and (new_hunt_x == new_fish_x)): #bang!
                     self.alive -= 1
-                    self.replaceShape(x, y, 1, False)
+                    self.replaceShape(x, y, 1, False) #set has_fish to False
                     if self.alive == 0: #finish, display final message
                         self.winning()
                 elif self.shapeAt(new_fish_x, new_fish_y)[1]: #two fishes crash
@@ -137,9 +173,9 @@ class Board(QtGui.QFrame):
         self.close()
 
     def tryMoveHunter(self, old_x, old_y, new_x, new_y):
-        self.replaceShape(old_x, old_y, 2, False)
-        self.replaceShape(new_x, new_y, 2, True)
-        self.piece_pos[Board.Pieces] = (new_x,new_y)
+        self.replaceShape(old_x, old_y, 2, False) #update old cell
+        self.replaceShape(new_x, new_y, 2, True) #new cell
+        self.piece_pos[Board.Pieces] = (new_x,new_y) #update hunter position
         self.steps += 1
         self.emit(QtCore.SIGNAL('messageToStatusbar(QString)'), 'press q to exit; press d for demo; %d steps taken' % self.steps)
 
@@ -155,15 +191,15 @@ class Board(QtGui.QFrame):
         y_up = max(0, y-1)
         y_dn = min(Board.BoardHeight-1, y+1)
 
-        direction = self.shapeAt(x,y)[0]
+        direction = self.shapeAt(x,y)[0]#current dir
 
         if direction == Board.UP: 
             return (x,y_up)
-        elif direction == Board.DOWN: #down
+        elif direction == Board.DOWN: 
             return (x,y_dn)
-        elif direction == Board.LEFT: #left
+        elif direction == Board.LEFT: 
             return (x_left,y)
-        elif direction == Board.RIGHT: #right
+        elif direction == Board.RIGHT: 
             return (x_right,y)
          
     
@@ -176,7 +212,7 @@ class Board(QtGui.QFrame):
         
         #draw grids
         for y in range(1, Board.BoardHeight):
-            qp.drawLine(0, y*h, w*Board.BoardWidth, y*h) 
+            qp.drawLine(0, y*h, w*Board.BoardWidth, y*h) #(x_0, y_0, x_1, y_1); horizontal line
         for x in range(1, Board.BoardWidth):
             qp.drawLine(x*w, 0, x*w, Board.BoardHeight*h)
         
@@ -193,7 +229,7 @@ class Board(QtGui.QFrame):
         W = Board.BoardWidth
         H = Board.BoardHeight
         
-        mat = [(0, False, False)] * (H*W)
+        mat = [(0, False, False)] * (H*W) #(dir, has_fish, has_hunter)
         
         def drawEdge(x,y,w,h,clockwise):
             if clockwise == 1:
@@ -264,8 +300,6 @@ class Board(QtGui.QFrame):
         self.piece_pos[self.alive] = (x,y)
         mat[x+y*W] = (0, False, True)
         self.board = mat
-        #return mat
-    
 
     def drawShape(self, painter, x, y, shape):
         w = self.squareWidth()
@@ -276,9 +310,9 @@ class Board(QtGui.QFrame):
             position = [(0.25, 0.75), (0.5, 0.25), (0.75, 0.75)]
         elif shape[0] == Board.DOWN: #down arrow
             position = [(0.25, 0.25), (0.5, 0.75), (0.75, 0.25)]
-        elif shape[0] == Board.LEFT: #left
+        elif shape[0] == Board.LEFT: #left arrow
             position = [(0.75, 0.25), (0.25, 0.5), (0.75, 0.75)]
-        elif shape[0] == Board.RIGHT: #right
+        elif shape[0] == Board.RIGHT: #right arrow
             position = [(0.25, 0.25), (0.75, 0.5), (0.25, 0.75)]
 
         if shape[0] != 0:
